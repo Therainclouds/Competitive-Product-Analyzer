@@ -10,6 +10,10 @@
 const assert = require('assert');
 const { config, extractJson } = require('../lib/llm/client');
 
+// 隔离真实 .env/环境配置：本测试验证的是「无显式配置时的默认值」，
+// 若用户 .env 里设了 LLM_MODEL（如 MiniMax-M3）会污染断言（v1.7 修复既有 bug）
+delete process.env.LLM_MODEL;
+
 console.log('Test 1: 缺 LLM_API_KEY 应抛错');
 try {
   delete process.env.LLM_API_KEY;

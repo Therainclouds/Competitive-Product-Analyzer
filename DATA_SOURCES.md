@@ -1,7 +1,7 @@
 # 竞品解剖器 · 数据来源与真实性分析
 
 > 用途：回答「竞品解剖器到底是从哪里分析出真实资料的」——每个维度查了什么、没查什么、为什么，以及可信度分层。
-> 版本：v1.1（第一版原型实测后）
+> 版本：v1.7（技术栈规则引擎 + 自维护增量规则上线后）
 
 ---
 
@@ -36,15 +36,20 @@
 
 ### 维度 1：技术栈识别（置信度高）
 
-| 数据源 | 具体查什么 | 一手/二手 | 实测命中率 |
-|---|---|---|---|
-| **产品官网 · HTTP 响应头** | `server:` 头（nginx/Cloudflare/Vercel）、`x-powered-by`、`x-vercel-id` 等专有头 | 一手 | 10/10 站 |
-| **产品官网 · HTML 标记** | `__NEXT_DATA__`（Next.js）、`__NUXT__`、`wp-content`（WordPress）等框架专属标记 | 一手 | 9/10 站 |
-| **产品官网 · JS 路径** | `/_next/static/`、`/assets/` 指纹、CDN 脚本引用 | 一手 | 6/10 站 |
-| **DNS CNAME** | 解析 CNAME 判断 CDN（Cloudflare/Fastly/Akamai） | 一手 | 中 |
-| **Wappalyzer 规则系**（v1.1 待接入） | 开源规则库 technologies.json（约 2000 条指纹） | 二手规则库 | — |
+**v1.7 起由 webappalyzer 规则引擎驱动**（社区规则源 enthec/webappanalyzer，MIT，7600+ 应用快照在 `rules/webappanalyzer/`，`node scripts/update_rules.js` 刷新）+ **自维护增量规则**（`rules/incremental/`，收录标准：语义明确的事实信号，宁缺毋滥）。替代了 v1.1 的手写零散正则（P3 误报根因）。
 
-**回答你的问题**：技术栈**完全来自产品官网本身**（响应头 + 页面源码 + JS 引用），不查专利、不查论文。这是最可靠的信号——网站自己暴露了自己的技术。
+| 检测通道 | 查什么 | 规则数 | 实测 |
+|---|---|---|---|
+| scriptSrc（JS 路径指纹） | 脚本 src 匹配规则 pattern | 3881 | ✅ 主通道 |
+| headers（响应头） | 专有头/值 pattern | 666 | ✅ |
+| cookies / meta / url / dns(TXT) | NEXT_LOCALE、generator 等 | 372/755/85/137 | ✅ |
+| html（页面标记） | 框架专属标记 | 345 | ✅ |
+| DNS CNAME（自维护补充） | CDN 判断（规则源无此通道） | 7 | ✅ 与 TXT 互补 |
+| implies / requires / excludes | 传递推断 + 前提校验 + 互斥剔除 | 1010 | ✅ |
+
+**已知差距（诚实声明）**：规则的 `js`（浏览器全局变量）、`dom`（运行时 DOM 特征）、`scripts`（bundle 内容）、`xhr` 四个通道需要浏览器或 JS bundle 抓取，静态管线不实现。影响：纯 CSR 应用的 React/Vue 只能靠 implies 链带出（如 Next.js→React）；webpack 类需 bundle 内容确认 → 列入打磨清单 item 8。
+
+**误报治理效果**：figma.com 实测——旧引擎报 Vue.js/Angular（`id="app"` 巧合命中），新引擎 0 误报，且独立复现旧引擎的正确结论（Next.js/Netlify），新增 Sanity CMS、Amazon CloudFront 等一手证据支撑项。五站对比全部通过。
 
 ### 维度 2：商业模式判断（置信度中高）
 
@@ -101,8 +106,8 @@
 ## 五、当前局限（诚实清单）
 
 1. **私有大公司团队规模必然低估**（Stripe 实测 10-24 vs 实际数千）——免费源查不到，需 Crunchbase key 或半人半机人工补
-2. **支付指纹在 SSR 定价页不可见**（0/4 命中）——支付脚本异步加载，需抓 JS bundle 才有效
-3. **零依赖正则的误报**（figma 的 Vue/Angular）——v1.1 接 wappalyzer-core 引擎解决
+2. **支付指纹在 SSR 定价页不可见**（0/4 命中）——支付脚本异步加载，需抓 JS bundle 才有效（item 8，可同场补上技术栈 scripts 通道盲区）
+3. ~~零依赖正则的误报~~ ✅ **v1.7 已解决**（规则引擎 + 增量规则，figma 实测 Vue/Angular 误报消除）
 4. **融资/新闻信号尚未验证**（Google News RSS 刚接入）
 5. **专利/学术论文维度未做**——设计上排除，非缺陷
 

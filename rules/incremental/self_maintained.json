@@ -1,0 +1,39 @@
+{
+  "_comment": "自维护增量规则（SPECS：社区规则源 + 增量补盲）。收录标准：语义明确的事实信号，宁缺毋滥。误报根源类模糊信号（id=\"app\"、chunk.js 等）永不收录。webpack 的社区盲区（需 fetch JS bundle 看 webpackChunk 全局）走 v1.7-item8 bundle 通道，不进本文件。",
+  "_source": "竞品解剖器项目组自研（MIT），补充 enthec/webappanalyzer 对现代打包产物的覆盖缺口",
+
+  "Next.js": {
+    "cats": [12],
+    "description": "React 框架（Vercel）。社区规则仅覆盖 x-powered-by 头（现代应用默认不发），此处按打包产物路径与专有头补盲。",
+    "html": ["<script id=\"__NEXT_DATA__\" type=\"application/json\">"],
+    "scriptSrc": ["_next/static/(?:chunks|css|media)/"],
+    "headers": {
+      "x-nextjs-cache": ".+",
+      "x-nextjs-preview": ".+"
+    }
+  },
+
+  "Vercel": {
+    "cats": [62],
+    "description": "前端云平台。社区规则靠 server: Vercel 头，此处补 x-vercel-id（现代部署的主信号）。",
+    "headers": {
+      "x-vercel-id": ".+",
+      "x-vercel-cache": ".+"
+    }
+  },
+
+  "Netlify": {
+    "cats": [62],
+    "description": "前端云平台。社区规则靠 server/netlify 头，此处补 x-nf-request-id。",
+    "headers": {
+      "x-nf-request-id": ".+"
+    }
+  },
+
+  "Nuxt": {
+    "cats": [12],
+    "description": "Vue 框架。社区规则名 Nuxt.js/Nuxt 仅覆盖部分通道，补打包产物路径。",
+    "html": ["<div [^>]*id=\"__nuxt\"", "_nuxt/entry"],
+    "scriptSrc": ["_nuxt/[^/]+\\.(?:js|mjs)"]
+  }
+}

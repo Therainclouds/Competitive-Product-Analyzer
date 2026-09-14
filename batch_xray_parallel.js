@@ -1,16 +1,11 @@
 #!/usr/bin/env node
 /**
- * 批量解剖 · 并行版（v1.5 · Day 5）
+ * 批量解剖 · 唯一批处理入口（v1.7 起合并串行版 batch_xray.js，需串行用 --concurrency 1）
  * ------------------------------------------------------------
  * 跨站并行（默认 5 并发），复用 pipeline.dissectOne。
  *
  * 用法:
  *   node batch_xray_parallel.js [--concurrency 5] [--out <dir>] [--with-redblue]
- *
- * 与 batch_xray.js（串行版）对比：
- *   - 5 站 × 30s/站 串行 = ~150s；并行（concurrency=5）= ~30-60s
- *   - 站内仍用 Promise.allSettled 跑三路采集
- *   - 写文件 + 入库
  */
 
 const path = require('path');
@@ -76,7 +71,9 @@ async function main() {
           withRedBlue,
           writeFiles: { dir: outDir },
         }),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('单站超时 180s')), 180000)),
+        // v1.7 对齐新预算体系：dissectOne 内部已有 150s 采集 deadline + 240s 兜底，
+        // 外层 race 只防极端卡死，取 250s
+        new Promise((_, rej) => setTimeout(() => rej(new Error('单站超时 250s')), 250000)),
       ]);
       const { report } = result;
       // 入库

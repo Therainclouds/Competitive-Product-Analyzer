@@ -1,0 +1,9 @@
+{
+  "source": "enthec/webappanalyzer@main",
+  "commit": "2b5eed3",
+  "commit_date": "2026-09-03",
+  "apps": 7613,
+  "license": "MIT",
+  "refreshed_at": "2026-09-03T06:50:04Z",
+  "note": "经 git sparse-checkout 拉取；node scripts/update_rules.js 可刷新（GitHub API 途径）。版本提取正则等元信息见 lib/tech/rules_loader.js 头注释。"
+}

@@ -50,6 +50,7 @@ Report = {
     }
   },
   data_gaps: string[],         // 明确「数据不足」的维度
+  budget_exhausted: bool,      // v1.7：部分探测因网络预算耗尽未完成（≠ 数据不足，可重跑补全）
   evidence: Evidence[],        // 全报告证据池（可溯源）
   disclaimer: string
 }
@@ -59,6 +60,14 @@ Evidence = { id, source, kind, detail, url?, fetched_at }
 EvidenceRef = { evidenceId }
 PriceHint = { plan?, price?, period?, raw }
 TeamSignal = { source, raw, estimate_range?, weight }
+// v1.7 business_model 扩展字段：
+//   pricing_page: string | null
+//   providers: [{ provider, confidence, via?: 'bundle' }]  // 支付指纹（HTML 层 + bundle 补采层）
+//   llm_extract: {                                        // LLM 定价页结构化抽取（无 key 时 null）
+//     plans: [{ name, price, currency, period, quota, key_features[] }],
+//     monetization_primary, monetization_secondary[],
+//     rule_monetization,  // 与规则引擎判断不一致时的原值（high 置信时 LLM 覆盖）
+//     confidence, notes }
 ```
 
 ## 三、数据模型核心：evidence 对象（护城河）
@@ -73,8 +82,11 @@ TeamSignal = { source, raw, estimate_range?, weight }
 置信度 = 信号数量 × 来源权重 × 时效因子（第一版时效恒为 1）
 
 来源权重：headers=1.0, html=0.9, js_paths=0.8, dns=0.8,
+          cookies=0.9, meta=0.9, url=0.6, implies=0.5,   ← v1.7 规则引擎通道
           pricing_page=1.0, pricing_signal=0.9, paywall=0.7,
-          payment_fingerprint=0.6（已知 SSR 盲区）, github=0.8, careers=0.5
+          payment_fingerprint=0.6（SSR 盲区；v1.7 起 bundle 补采提升命中）,
+          github=0.8, careers=0.5, company_info=0.8,
+          llm_redblue=0.7, llm_pricing=0.7                ← LLM 层（可回原文核对）
 
 分级（按维度累计加权分）：
   high   ≥ 2.0 且至少 2 个独立来源
@@ -91,31 +103,35 @@ TeamSignal = { source, raw, estimate_range?, weight }
 
 | 模块 | 数据源 | 方法 | 合规 |
 |---|---|---|---|
-| tech_stack | 响应头/DNS/HTML/JS 路径 | 复用 `probes/tech_stack`（零依赖正则层；wappalyzer-core 引擎列为 v1.1） | ✅ 真实 UA |
-| business_model | 定价页 /pricing /plans | 复用 `probes/pricing`（定价页发现 + 支付指纹 + 付费墙 + 定价信号） | ✅ 不绕验证码 |
+| tech_stack | webappalyzer 社区规则源（v1.7）+ 自维护增量规则 | `lib/tech/detect.js` 规则引擎（scriptSrc/headers/cookies/meta/html/url/dns 静态通道 + implies/requires/excludes）；快照 `rules/webappanalyzer/`（enthec/webappanalyzer@main，MIT），刷新 `node scripts/update_rules.js`；增量 `rules/incremental/`（收录标准：语义明确，宁缺毋滥） | ✅ 真实 UA |
+| tech_stack | DNS CNAME 判断 CDN | 规则源无 CNAME 通道，保留自实现补充 | ✅ |
+| business_model | 定价页 /pricing /plans | 复用 `probes/pricing`（定价页发现 + 支付指纹 + 付费墙 + 定价信号）；v1.7：HTML 未命中支付商时补采 ≤4 个 JS bundle 搜支付特征（P2 盲区）；v1.7：LLM 结构化抽取（A-MINT schema，`lib/llm/pricing_extract.js`，未配 key 自动跳过） | ✅ 不绕验证码 |
 | team_size | GitHub API（org 成员数） | `https://api.github.com/orgs/{org}`（免费 60req/h，无需 key） | ✅ 官方 API |
 | team_size | 招聘页 /careers /jobs /about | 抓取 + 岗位关键词计数 | ✅ 公开页面 |
-| team_size | OpenCorporates（v1.1 可选） | API（免费 200req/月） | ✅ 开放数据 |
+| team_size | OpenCorporates（公益项目申请中） | API（配 `OPEN_CORPORATES_KEY` 即启用，未配置自动跳过并记入证据） | ✅ 开放数据 |
 
 **GitHub org 推断**：从 URL 域名 → 猜 org 名（如 linear.app → linearapp/linear）→ 探测 GitHub org 存在性；失败则记 evidence「org 未找到」不算缺陷。
 
 ## 六、推理层
 
 - 技术栈 → 直接透传采集结果 + 去重 + 多源置信度提升
-- 商业模式 → 规则引擎（复用 pricing_probe 的 monetization_guess 逻辑，输出到契约）
+- 商业模式 → 规则引擎（复用 pricing_probe 的 monetization_guess 逻辑，输出到契约）；v1.7 LLM 结构化抽取接入规则层：LLM `confidence=high` 且与规则不一致时覆盖 monetization（规则原值留痕 `llm_extract.rule_monetization`）；规则为 unknown 且 LLM 非 low 时采纳 LLM
 - 团队规模 → **区间投票**：
   - GitHub public members（若 org 存在）→ 区间 [members, members×1.5]
   - 招聘页岗位数 n → 经验系数区间 [n×2.5, n×6]（v0.1 同款推断：8 岗 → 15-25 人）
   - 多源区间取并集 → 输出 [min, max]；只有单源 → 输出该源区间 + low
   - 无任何源 → data_sufficient=false
+- **红蓝对抗（v1.7 强化验收）**：LLM 攻击输出经 `evidenceCheck` 双重校验——引用不存在的 evidence ID → 剔除引用并降 low；`attack_path` 缺失或 <20 字（套话）→ 强制降 low 并记 note
 
 ## 七、呈现层（第一版）
 
 - `report.json`：完整结构化数据（机器可读）
-- `report.md`：人类可读 Markdown（三件套 + 证据链列表 + 数据不足标注 + 免责声明）
+- `report.md`：人类可读 Markdown（三件套 + 证据链列表 + 数据不足标注 + 免责声明；v1.7 起含 LLM 套餐表、budget 重跑引导）
 - 命令行：`node xray.js <url> --out ./reports/`
 
-## 八、验收标准（第一版测试）
+## 八、验收标准
+
+### 第一版（v1.0，2026-08-20 实测通过，见 TEST_REPORT.md）
 
 | # | 标准 | 目标 |
 |---|---|---|
@@ -128,28 +144,23 @@ TeamSignal = { source, raw, estimate_range?, weight }
 | 7 | 单命令可跑完一站（含重试，网络波动容忍） | 5/5 |
 | 8 | 全流程合规：真实 UA、不绕验证码、不碰 LinkedIn | 5/5 |
 
+### v1.7 增补（2026-09-14 实测通过，详见 TEST_REPORT.md v1.7 节）
+
+| # | 标准 | 实测 |
+|---|---|---|
+| 9 | 技术栈 0 误报（旧 P3 类：id="app"→Vue、字符串巧合→Angular） | ✅ 五站 0 误报 |
+| 10 | 社区规则快照 + 自维护增量规则 + 刷新脚本进仓库（运行时零网络） | ✅ rules/ + scripts/update_rules.js |
+| 11 | 慢站单管线 ≤ 60s 完成（含慢网重试；旧基线 240s 超时） | ✅ figma 15.4s / 最慢站 11.8s |
+| 12 | 预算耗尽 ≠ 数据不足：budget_exhausted 证据 + CLI/工作台重跑引导 | ✅ |
+| 13 | 定价页 LLM 结构化抽取：真实 LLM 端到端出套餐表，无 key/失败自动降级不伤主报告 | ✅ linear 4 套餐 high |
+| 14 | 红蓝对抗：无效 evidence 引用降级 + 无攻击路径降级（契约测试覆盖） | ✅ test_redblue Test 5 |
+
 ## 九、技术栈
 
-- Node.js（零依赖实现，复用 probes/；已有共享 http.js 带重试）
-- 无需 LLM 即可出第一版（规则引擎）；LLM 精修列为 v1.1（A-MINT schema + 置信度校准）
+- Node.js ≥ 24（零依赖；`node:sqlite` 持久化 + 内置 fetch/dns/https）
+- 无需 LLM 即可出完整三件套报告（规则引擎）；LLM 层 v1.7 启用：定价页 A-MINT 结构化抽取 + 红蓝对抗 + 竞品发现（无 key 全部优雅跳过）
+- 技术栈识别：webappalyzer 社区规则源（enthec/webappanalyzer，MIT）+ 自维护增量规则，浏览器通道（js/dom/bundle 内容）为已知差距
 
 ## 十、目录结构
 
-```
-xray/
-├── xray.js            # CLI 入口
-├── lib/
-│   ├── evidence.js    # evidence 池 + 引用
-│   ├── confidence.js  # 置信度计算
-│   ├── collect/
-│   │   ├── tech.js    # 技术栈（调 probes 逻辑）
-│   │   ├── pricing.js # 商业模式（调 probes 逻辑）
-│   │   └── team.js    # 团队规模（GitHub + 招聘页）
-│   ├── reason/
-│   │   └── assemble.js# 三件套组装 + 数据不足判断
-│   └── render/
-│       ├── json.js    # report.json
-│       └── md.js      # report.md
-├── reports/           # 输出
-└── SPECS.md（本文件）
-```
+见 README.md「目录结构」节（v1.7 起以 README 为单一维护版本，避免两处漂移）。

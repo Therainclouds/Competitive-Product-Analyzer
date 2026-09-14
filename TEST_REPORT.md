@@ -103,3 +103,57 @@ $env:CRUNCHBASE_KEY    = "你的key"
 ```
 
 **数据来源体系文档**：`xray/DATA_SOURCES.md`（回答「资料从哪来」：官网一手 + 官方 API + 第三方聚合 + 新闻，三层可信度；明确不查专利/学术论文及原因）。
+
+---
+
+# v1.7 测试报告（2026-09-14 · 规则引擎 + 预算制 + LLM 抽取）
+
+> 触发：打磨清单制修复（用户决定：验证前持续打磨）。覆盖 v1.1 全部遗留 P1-P5。
+
+## 一、验收结果总表（v1.7 增补标准）
+
+| # | 验收标准 | 目标 | 实测 | 结论 |
+|---|---|---|---|---|
+| 9 | 技术栈 0 误报（旧 Vue/Angular 类） | 5/5 站 | **5/5**（figma 首页不再报框架类） | ✅ |
+| 10 | 规则引擎五站召回 ≥ 旧引擎正确项 | ≥4/5 | **5/5**（含 Next.js 增量规则补盲） | ✅ |
+| 11 | 慢站单管线 ≤ 60s（旧基线 240s 超时） | 5/5 | **5/5**（最慢 figma 15.4s，stripe 11.8s） | ✅ |
+| 12 | budget_exhausted 证据 + CLI/工作台重跑引导 | 全链路 | ✅ 渲染/横幅/报告字段三处落地 | ✅ |
+| 13 | LLM 定价页抽取端到端（真实 MiniMax） | 可用 | **linear 4 套餐 high 置信 + 诚实 notes**，无 key 优雅降级 | ✅ |
+| 14 | 红蓝攻击缺 attack_path / 无效引用强制降 low | 契约测试 | Test 1-5 全过 | ✅ |
+| 6(回归) | 数据不足维度诚实标注 | 5/5 | **0 gaps**（五站全有数据——figma「商业模式数据不足」已根治） | ✅ 超额 |
+
+## 二、逐站实测（v1.7 管线，本机限速网络）
+
+| 站点 | 耗时 | 技术栈 | 商业模式 | 团队规模 | 预算耗尽 |
+|---|---|---|---|---|---|
+| vercel.com | 10.3s | 7 项（Next.js/Vercel/React/S3…） | freemium ✅ | 40-2500 | 否 |
+| linear.app | 8.2s | 9 项（+Next.js 增量规则/Algolia） | freemium ✅ | 15-51 | 否 |
+| stripe.com | 11.8s | 6 项 | freemium ✅ | 10-4290（theorg 联合校准） | 否 |
+| notion.so | 7.4s | 13 项（旧版此项超时无数据） | freemium ✅ | 38-1281 | 否 |
+| figma.com | 15.4s | 8 项 0 误报（旧版 272s/超时） | **freemium ✅（旧版「数据不足」）** | 43-1242 | 否 |
+
+## 三、本轮根治的问题
+
+1. **P3 误报**：规则引擎（enthec/webappanalyzer 快照 7613 应用 / MIT / `scripts/update_rules.js` 刷新）+ 自维护增量规则（`rules/incremental/`，收录标准=语义明确）。旧手写正则层全部退役。
+2. **P4 慢站**：三层修复——①采集级绝对 deadline（150s，三路共享）；②`req.setTimeout` 只管空闲，补**硬总时限定时器**（慢滴站点开火）；③**截断即成功**（定价页 2.4MB > maxBytes 时旧代码整体 abort 丢弃已有内容 → figma 商业模式「数据不足」的真实根因）。
+3. **P2 支付指纹**：定价页 HTML 未命中支付商时补采 ≤4 个 JS bundle 搜特征。linear 实测未误报（其支付在服务端，属预期内诚实结果）。
+4. **test_llm_smoke 既有 bug**：真实 .env 的 LLM_MODEL 污染「默认值断言」——测试顶部显式清 env，不再依赖环境洁净。
+5. **batch_xray.js（串行版）**：删除；pipeline 共享后其手工组装逻辑属双维护风险，`batch_xray_parallel.js --concurrency 1` 即串行。
+6. **密钥卫生**：xray 全部 git 历史文件名+内容双扫描干净；`.env` 加载从 llm/client 副作用抽为 `lib/env.js` 单一真相源（company_info 直接可用，不再依赖加载顺序）。
+
+## 四、遗留（已知差距，非缺陷）
+
+| 项 | 状态 |
+|---|---|
+| 团队规模无 key 时系统性低估/超宽区间 | ⏸ OpenCorporates 公益项目申请中（批复后填 .env 即启用） |
+| webpack/js 全局/dom 类技术浏览器通道检测 | 规则源新版已放弃 bundle 内容检测，接受为诚实差距（DATA_SOURCES.md 已声明） |
+| LLM 抽取依赖定价页可达性 | bundle 通道 + 截断修复后，五站 5/5 可达 |
+
+## 五、测试套件清单（全绿，2026-09-14）
+
+```
+node tests/test_tech_rules.js      # 11 项（规则引擎/增量/降级/性能）
+node tests/test_pricing_extract.js # 9 项（A-MINT 校验/降级/清洗）
+node tests/test_redblue.js         # 5 项（+attack_path 强化契约）
+node tests/test_db.js / test_cache.js / test_llm_smoke.js
+```

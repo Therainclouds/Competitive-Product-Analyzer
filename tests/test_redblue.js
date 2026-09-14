@@ -20,8 +20,8 @@ pool.add({ source: 'github', kind: 'org', detail: 'org=linear', url: 'https://gi
 
 console.log('Test 1: evidenceCheck 接受有效 ID');
 const attacks1 = [
-  { angle: '价格碾压', evidence: ['ev-1', 'ev-2'], confidence: 'high' },
-  { angle: '渠道优势', evidence: ['ev-3'], confidence: 'medium' },
+  { angle: '价格碾压', evidence: ['ev-1', 'ev-2'], attack_path: '以 $5 入门价对位我方 $8 档，用规模摊薄成本打价格战', confidence: 'high' },
+  { angle: '渠道优势', evidence: ['ev-3'], attack_path: '通过 GitHub 开源生态分发插件，抢占我方集成渠道', confidence: 'medium' },
 ];
 const r1 = evidenceCheck(attacks1, pool);
 assert.strictEqual(r1.used.length, 3);
@@ -32,8 +32,8 @@ console.log('  ✅ PASSED');
 
 console.log('Test 2: evidenceCheck 拒绝无效 ID 并降级');
 const attacks2 = [
-  { angle: '虚构攻击', evidence: ['ev-99', 'ev-100'], confidence: 'high' }, // 都不存在
-  { angle: '部分有效', evidence: ['ev-1', 'ev-99'], confidence: 'high' },
+  { angle: '虚构攻击', evidence: ['ev-99', 'ev-100'], attack_path: '凭不存在的证据编造价格战路径，属于套话', confidence: 'high' }, // 证据都不存在
+  { angle: '部分有效', evidence: ['ev-1', 'ev-99'], attack_path: '基于 nginx 服务栈推断其迁移成本高，锁定存量客户', confidence: 'high' },
 ];
 const r2 = evidenceCheck(attacks2, pool);
 assert.strictEqual(r2.used.length, 1);
@@ -75,6 +75,19 @@ const { generateRedBlue } = require('../lib/llm/redblue');
     console.log('  ❌ FAILED: 不应抛错:', e.message);
     process.exit(1);
   }
+
+  console.log('\nTest 5: 缺 attack_path 的攻击强制降级为 low（v1.7 强化）');
+  const attacks5 = [
+    { angle: '有路径', evidence: ['ev-1'], attack_path: '竞品可把入门价从 $8 降到 $5，直接击穿我方定价带', confidence: 'high' },
+    { angle: '套话攻击', evidence: ['ev-2'], attack_path: '他们更强', confidence: 'high' }, // 路径过短
+    { angle: '无路径', evidence: ['ev-3'], confidence: 'high' }, // 缺失
+  ];
+  const r5 = evidenceCheck(attacks5, pool);
+  assert.strictEqual(attacks5[0].confidence, 'high');
+  assert.strictEqual(attacks5[1].confidence, 'low');
+  assert.strictEqual(attacks5[2].confidence, 'low');
+  assert.ok(r5.notes.some((n) => /攻击路径/.test(n)));
+  console.log('  ✅ PASSED');
 
   console.log('\n=== 所有红蓝对抗测试通过 ===');
 })();
