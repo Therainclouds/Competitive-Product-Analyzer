@@ -1,0 +1,17 @@
+# ---- 秘密与环境 ----
+.env
+settings.json
+
+# ---- 运行时数据（本地状态，不入库）----
+xray.db
+xray.db-journal
+.cache/
+reports/
+
+# ---- Node ----
+node_modules/
+npm-debug.log*
+
+# ---- 系统 ----
+.DS_Store
+Thumbs.db
