@@ -157,3 +157,44 @@ node tests/test_pricing_extract.js # 9 项（A-MINT 校验/降级/清洗）
 node tests/test_redblue.js         # 5 项（+attack_path 强化契约）
 node tests/test_db.js / test_cache.js / test_llm_smoke.js
 ```
+
+---
+
+# v1.8 测试报告（2026-09-19 · OpenCorporates 替代源：SEC 10-K 硬数据 + Companies House）
+
+> 触发：OpenCorporates 免费 API 申请被拒，团队规模维度数据源重整。
+
+## 一、替代源调研结论
+
+| 候选 | 结论 | 依据 |
+|---|---|---|
+| Crunchbase 免费 API | ❌ 已不存在 | 2025 起取消免费档，最低约 $49/月，真 API 约 $588+/年 |
+| Wikidata P1128（CC0） | ❌ 调研后弃用 | P856 官网反查对新兴 SaaS 覆盖空缺（linear/figma/notion 实测无条目）；名称搜索同名歧义违反证据质量红线 |
+| **SEC EDGAR 10-K 员工数** | ✅ **已实现（零 key）** | 官方一手年报数据；CIK 发现改用 company_tickers.json（旧 cgi-bin 端点实测 503） |
+| **UK Companies House** | ✅ **接口就绪（免费 key）** | 英国官方注册库全量公开数据免费；micro-entity/small 账户类型 = 法定员工上限（≤10/≤50），可裁剪区间 |
+
+## 二、验收结果
+
+| # | 标准 | 实测 | 结论 |
+|---|---|---|---|
+| 1 | 上市公司员工数硬数据 | **Salesforce 83,334**（10-K filing 2026-03-02）→ 区间 [75000, 108335] 主导、置信 medium | ✅（旧版同司报 13-30 人） |
+| 2 | 硬数据主导不被弱信号污染 | 招聘页系数 [13,30]、theorg [5489,82335] 仅作旁证列出，不并入区间 | ✅ |
+| 3 | Companies House 法定上限裁剪 | 单测：micro ≤10 / small ≤50 裁剪区间 max；无约束不裁剪 | ✅ |
+| 4 | 五站回归 | 5/5 通过、gaps=0、budget=false、耗时 4.2-11.8s | ✅ 无回归 |
+| 5 | 测试套件 | 7 套件全绿（新增 test_company_info 5 项） | ✅ |
+
+## 三、本批变更
+
+- `lib/collect/company_info.js`：probeSecEdgar 重写（company_tickers.json）+ 新增 probeSec10kEmployees / probeCompaniesHouse；OpenCorporates 代码移除
+- `lib/collect/team.js`：estimateTeamRange 支持 `isHard` 区间主导 + `upperBounds` 法定上限裁剪
+- `lib/reason/assemble.js`：`hard_data` → 团队规模置信度升 medium（单源官方快照，不给 high）
+- `lib/shared/http.js`：fetchUrl 支持自定义 headers（SEC/Companies House 身份 UA / Basic auth）
+- `.env.example`：`OPEN_CORPORATES_KEY` → `COMPANIES_HOUSE_KEY`（Crunchbase 标注付费现状）
+
+## 四、遗留
+
+| 项 | 状态 |
+|---|---|
+| 非上市美国公司员工数 | 免费源无解，保持 low + 弱推断（半人半机人工补） |
+| Companies House 实测 | ⏸ 用户在 developer.company-information.service.gov.uk 注册 key 后即生效 |
+| Crunchbase 订阅 | 用户决策项（$49/月起） |

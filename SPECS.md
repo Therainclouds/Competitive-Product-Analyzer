@@ -108,7 +108,9 @@ TeamSignal = { source, raw, estimate_range?, weight }
 | business_model | 定价页 /pricing /plans | 复用 `probes/pricing`（定价页发现 + 支付指纹 + 付费墙 + 定价信号）；v1.7：HTML 未命中支付商时补采 ≤4 个 JS bundle 搜支付特征（P2 盲区）；v1.7：LLM 结构化抽取（A-MINT schema，`lib/llm/pricing_extract.js`，未配 key 自动跳过） | ✅ 不绕验证码 |
 | team_size | GitHub API（org 成员数） | `https://api.github.com/orgs/{org}`（免费 60req/h，无需 key） | ✅ 官方 API |
 | team_size | 招聘页 /careers /jobs /about | 抓取 + 岗位关键词计数 | ✅ 公开页面 |
-| team_size | OpenCorporates（公益项目申请中） | API（配 `OPEN_CORPORATES_KEY` 即启用，未配置自动跳过并记入证据） | ✅ 开放数据 |
+| team_size | SEC EDGAR（v1.8 · 上市公司硬数据） | `company_tickers.json` 定位 CIK → 最近 10-K 抽员工数；**硬数据主导区间 + medium 置信**（旧 cgi-bin 端点已 503 弃用） | ✅ 官方 API |
+| team_size | UK Companies House（v1.8 · OpenCorporates 替代） | 免费官方注册库（配 `COMPANIES_HOUSE_KEY` 启用）；micro/small 账户类型 = **法定员工上限**，裁剪区间 max | ✅ 官方 API |
+| team_size | OpenCorporates | ❌ 已移除（2026-09 免费 API 申请被拒；Crunchbase 免费 API 亦已于 2025 取消） | — |
 
 **GitHub org 推断**：从 URL 域名 → 猜 org 名（如 linear.app → linearapp/linear）→ 探测 GitHub org 存在性；失败则记 evidence「org 未找到」不算缺陷。
 
